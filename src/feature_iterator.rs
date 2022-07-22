@@ -12,11 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-extern crate serde;
-extern crate serde_derive;
-extern crate serde_json;
-
-use crate::Feature;
+use crate::{Feature, Result};
 
 use std::io;
 use std::marker::PhantomData;
@@ -54,7 +50,7 @@ impl<R> FeatureIterator<R>
 where
     R: io::Read,
 {
-    fn skip_past_byte(&mut self, byte: u8) -> io::Result<bool> {
+    fn skip_past_byte(&mut self, byte: u8) -> Result<bool> {
         let mut one_byte = [0];
         loop {
             if self.reader.read_exact(&mut one_byte).is_err() {
@@ -71,7 +67,8 @@ where
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     format!("byte {}", one_byte[0]),
-                ));
+                )
+                .into());
             }
         }
     }
@@ -81,7 +78,7 @@ impl<R> Iterator for FeatureIterator<R>
 where
     R: io::Read,
 {
-    type Item = io::Result<Feature>;
+    type Item = Result<Feature>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(skip) = self.skip {
