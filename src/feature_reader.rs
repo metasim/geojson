@@ -131,7 +131,6 @@ impl<'r, R: Read> FeatureReader<R> {
     /// ```
     ///
     /// ## With geo-types Geometry
-    ///
     #[cfg_attr(feature = "geo-types", doc = "```")]
     #[cfg_attr(not(feature = "geo-types"), doc = "```ignore")]
     /// let feature_collection_string = r#"{

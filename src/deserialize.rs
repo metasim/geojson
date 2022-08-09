@@ -137,7 +137,9 @@ where
             // has the fields needed by a child visitor - perhaps using serde::de::value::MapAccessDeserializer?
             // use serde::de::value::MapAccessDeserializer;
             let d2 = hash_map.into_deserializer();
-            Ok(serde::Deserialize::deserialize(d2).expect("TODO"))
+            let result = serde::Deserialize::deserialize(d2)
+                .map_err(|e| A::Error::custom(format!("{}", e)))?;
+            Ok(result)
         } else {
             return Err(A::Error::custom(
                 "A GeoJSON Feature must have a `type: \"Feature\"` field, but found none.",
@@ -191,16 +193,6 @@ mod tests {
     mod geo_types_tests {
         use super::*;
 
-        // Some example object, that we want to parse the geojson into.
-        #[derive(Deserialize)]
-        struct MyStruct {
-            // TODO: try to parse into specific variants like Point
-            #[serde(deserialize_with = "deserialize_geometry")]
-            geometry: geo_types::Geometry<f64>,
-            name: String,
-            age: u64,
-        }
-
         fn feature_collection_string() -> String {
             json!({
                 "type": "FeatureCollection",
@@ -233,14 +225,23 @@ mod tests {
         }
 
         #[test]
-        fn feature_collection_from_reader() {
+        fn geometry_field() {
+            // Some example object, that we want to parse the geojson into.
+            #[derive(Deserialize)]
+            struct MyStruct {
+                #[serde(deserialize_with = "deserialize_geometry")]
+                geometry: geo_types::Geometry<f64>,
+                name: String,
+                age: u64,
+            }
+
             let feature_collection_string = feature_collection_string();
             let bytes_reader = feature_collection_string.as_bytes();
 
             let records: Vec<MyStruct> = deserialize_collection_features_from_reader(bytes_reader)
                 .expect("a valid feature collection")
-                .map(|result| result.expect("a valid feature"))
-                .collect();
+                .collect::<Result<Vec<_>>>()
+                .expect("valid features");
 
             assert_eq!(records.len(), 2);
 
@@ -257,6 +258,66 @@ mod tests {
             );
             assert_eq!(records[1].name, "Neverland");
             assert_eq!(records[1].age, 456);
+        }
+
+        #[test]
+        fn specific_geometry_variant_field() {
+            // Some example object, that we want to parse the geojson into.
+            #[derive(Deserialize)]
+            struct MyStruct {
+                #[serde(deserialize_with = "deserialize_geometry")]
+                geometry: geo_types::Point<f64>,
+                name: String,
+                age: u64,
+            }
+
+            let feature_collection_string = feature_collection_string();
+            let bytes_reader = feature_collection_string.as_bytes();
+
+            let records: Vec<MyStruct> = deserialize_collection_features_from_reader(bytes_reader)
+                .expect("a valid feature collection")
+                .collect::<Result<Vec<_>>>()
+                .expect("valid features");
+
+            assert_eq!(records.len(), 2);
+
+            assert_eq!(records[0].geometry, geo_types::point!(x: 125.6, y: 10.1));
+            assert_eq!(records[0].name, "Dinagat Islands");
+            assert_eq!(records[0].age, 123);
+
+            assert_eq!(records[1].geometry, geo_types::point!(x: 2.3, y: 4.5));
+            assert_eq!(records[1].name, "Neverland");
+            assert_eq!(records[1].age, 456);
+        }
+
+        #[test]
+        fn wrong_geometry_variant_field() {
+            // Some example object, that we want to parse the geojson into.
+            #[derive(Debug, Deserialize)]
+            struct MyStruct {
+                #[serde(deserialize_with = "deserialize_geometry")]
+                geometry: geo_types::LineString<f64>,
+                name: String,
+                age: u64,
+            }
+
+            let feature_collection_string = feature_collection_string();
+            let bytes_reader = feature_collection_string.as_bytes();
+
+            let records: Vec<Result<MyStruct>> =
+                deserialize_collection_features_from_reader(bytes_reader)
+                    .expect("a valid feature collection")
+                    .collect();
+            assert_eq!(records.len(), 2);
+            assert!(records[0].is_err());
+            assert!(records[1].is_err());
+
+            let err = records[0].as_ref().unwrap_err();
+
+            // This will fail if we update our error text, but I wanted to show that the error text
+            // is reasonably discernible.
+            let expected_err_text = r#"Error while deserializing JSON: unable to convert from geojson Geometry: Encountered a mismatch when converting to a Geo type: `{"coordinates":[125.6,10.1],"type":"Point"}`"#;
+            assert_eq!(err.to_string(), expected_err_text);
         }
     }
 }
